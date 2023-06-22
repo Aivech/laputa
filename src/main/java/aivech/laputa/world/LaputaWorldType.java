@@ -34,4 +34,6 @@ public class LaputaWorldType extends WorldType {
     public double getHorizon(World world) {
         return 0.0D;
     }
+    @Override
+    public float getCloudHeight() {return 192F;}
 }

@@ -3,6 +3,7 @@ package aivech.laputa.world;
 import java.util.List;
 import java.util.Random;
 
+import aivech.laputa.world.noise.XXHasher;
 import net.minecraft.block.Block;
 import net.minecraft.entity.EnumCreatureType;
 import net.minecraft.init.Blocks;
@@ -35,6 +36,8 @@ public class LaputaOverworldChunkProvider implements IChunkProvider {
     private double[] field_147425_f;
     private WorldType worldType;
 
+    private final XXHasher hasher;
+
     public LaputaOverworldChunkProvider(World world) {
         this.world = world;
         this.doFeatureGen = world.getWorldInfo()
@@ -64,6 +67,8 @@ public class LaputaOverworldChunkProvider implements IChunkProvider {
         assert world.getWorldInfo()
             .getTerrainType() == LaputaWorldType.INSTANCE;
         this.worldType = LaputaWorldType.INSTANCE;
+
+        this.hasher = new XXHasher(world.getSeed());
     }
 
     @Override
@@ -72,17 +77,40 @@ public class LaputaOverworldChunkProvider implements IChunkProvider {
     }
 
     @Override
-    public Chunk provideChunk(int p_73154_1_, int p_73154_2_) {
-        this.rand.setSeed((long) p_73154_1_ * 341873128712L + (long) p_73154_2_ * 132897987541L);
+    public Chunk provideChunk(int chunk_x, int chunk_z) {
+
         Block[] ablock = new Block[65536];
         byte[] abyte = new byte[65536];
 
-        this.func_147424_a(p_73154_1_, p_73154_2_, ablock, abyte);
+
+        int latticeX = 16/4 + 1;
+        int latticeZ = 16/4 + 1;
+        int latticeY = 256/4 + 1;
+
+        int latticeSize = latticeX * latticeZ * latticeY;
+
+        long[] hashNoise = new long[latticeSize];
+
+
+        for (int i = 0; i < latticeX; i++) {
+            for (int j = 0; j < latticeZ; j++) {
+                int u = chunk_x * 4 + i;
+                int v = chunk_z * 4 + j;
+
+                for(int k = 0; k < latticeY; k++) {
+                    hashNoise[i*25+j*5+k] = this.hasher.hash(u,v,k);
+                }
+
+            }
+        }
+        this.placeBlocksByNoise(hashNoise, ablock, abyte);
+
+        // this.interpolateBlocksFromLattice(chunk_x, chunk_z, ablock, abyte);
 
         this.biomesForGeneration = this.world.getWorldChunkManager()
-            .loadBlockGeneratorData(this.biomesForGeneration, p_73154_1_ * 16, p_73154_2_ * 16, 16, 16);
+            .loadBlockGeneratorData(this.biomesForGeneration, chunk_x * 16, chunk_z * 16, 16, 16);
 
-        Chunk chunk = new Chunk(this.world, ablock, abyte, p_73154_1_, p_73154_2_);
+        Chunk chunk = new Chunk(this.world, ablock, abyte, chunk_x, chunk_z);
         byte[] abyte1 = chunk.getBiomeArray();
 
         for (int k = 0; k < abyte1.length; ++k) {
@@ -94,11 +122,74 @@ public class LaputaOverworldChunkProvider implements IChunkProvider {
         return chunk;
     }
 
-    public void func_147424_a(int p_147424_1_, int p_147424_2_, Block[] chunkBlocks, byte[] chunkMeta) {
+    private void placeBlocksByNoise(long[] hashNoise, Block[] block, byte[] meta) {
+        // int center = 80;
+
+        for(int slcX = 0; slcX < 4; slcX++) {
+            for(int colZ = 0; colZ < 4; colZ++) {
+                for(int cubY = 0; cubY < (256/4); cubY++) {
+
+                    long hash000 = hashNoise[slcX*25    +colZ*5     +cubY];
+                    long hash100 = hashNoise[(slcX+1)*25+colZ*5     +cubY];
+                    long hash010 = hashNoise[slcX*25    +(colZ+1)*5 +cubY];
+                    long hash110 = hashNoise[(slcX+1)*25+(colZ+1)*5 +cubY];
+                    long hash001 = hashNoise[slcX*25    +colZ*5     +cubY+1];
+                    long hash101 = hashNoise[(slcX+1)*25+colZ*5     +cubY+1];
+                    long hash011 = hashNoise[slcX*25    +(colZ+1)*5 +cubY+1];
+                    long hash111 = hashNoise[(slcX+1)*25+(colZ+1)*5 +cubY+1];
+
+                    float f000 = XXHasher.getHashFloat(hash000,0);
+                    float f100 = XXHasher.getHashFloat(hash100,0);
+                    float f010 = XXHasher.getHashFloat(hash010,0);
+                    float f110 = XXHasher.getHashFloat(hash110,0);
+                    float f001 = XXHasher.getHashFloat(hash001,0);
+                    float f101 = XXHasher.getHashFloat(hash101,0);
+                    float f011 = XXHasher.getHashFloat(hash011,0);
+                    float f111 = XXHasher.getHashFloat(hash111,0);
+
+                    int x0 = slcX*4;
+                    int x1 = slcX*4 + 3;
+                    int z0 = colZ*4;
+                    int z1 = colZ*4 + 3;
+                    int y0 = cubY*4;
+                    int y1 = cubY*4 + 3;
+
+                    block[x0 << 12 | z0 << 8 | y0] = Blocks.wool;
+                    block[x0 << 12 | z1 << 8 | y0] = Blocks.wool;
+                    block[x1 << 12 | z0 << 8 | y0] = Blocks.wool;
+                    block[x1 << 12 | z1 << 8 | y0] = Blocks.wool;
+                    block[x0 << 12 | z0 << 8 | y1] = Blocks.wool;
+                    block[x0 << 12 | z1 << 8 | y1] = Blocks.wool;
+                    block[x1 << 12 | z0 << 8 | y1] = Blocks.wool;
+                    block[x1 << 12 | z1 << 8 | y1] = Blocks.wool;
+
+                    byte c000 = (byte) MathHelper.clamp_int((int) Math.floor(f000*16f),0,15);
+                    byte c100 = (byte) MathHelper.clamp_int((int) Math.floor(f100*16f),0,15);
+                    byte c010 = (byte) MathHelper.clamp_int((int) Math.floor(f010*16f),0,15);
+                    byte c110 = (byte) MathHelper.clamp_int((int) Math.floor(f110*16f),0,15);
+                    byte c001 = (byte) MathHelper.clamp_int((int) Math.floor(f001*16f),0,15);
+                    byte c101 = (byte) MathHelper.clamp_int((int) Math.floor(f101*16f),0,15);
+                    byte c011 = (byte) MathHelper.clamp_int((int) Math.floor(f011*16f),0,15);
+                    byte c111 = (byte) MathHelper.clamp_int((int) Math.floor(f111*16f),0,15);
+
+                    meta[x0 << 12 | z0 << 8 | y0] = (byte) (hash000 & 0xF);
+                    meta[x0 << 12 | z1 << 8 | y0] = (byte) (hash010 & 0xF);
+                    meta[x1 << 12 | z0 << 8 | y0] = (byte) (hash100 & 0xF);
+                    meta[x1 << 12 | z1 << 8 | y0] = (byte) (hash110 & 0xF);
+                    meta[x0 << 12 | z0 << 8 | y1] = (byte) (hash001 & 0xF);
+                    meta[x0 << 12 | z1 << 8 | y1] = (byte) (hash011 & 0xF);
+                    meta[x1 << 12 | z0 << 8 | y1] = (byte) (hash101 & 0xF);
+                    meta[x1 << 12 | z1 << 8 | y1] = (byte) (hash111 & 0xF);
+                }
+            }
+        }
+    }
+
+    private void interpolateBlocksFromLattice(int chunkX, int chunkZ, Block[] chunkBlocks, byte[] chunkMeta) {
         byte b0 = 63;
         this.biomesForGeneration = this.world.getWorldChunkManager()
-            .getBiomesForGeneration(this.biomesForGeneration, p_147424_1_ * 4 - 2, p_147424_2_ * 4 - 2, 10, 10);
-        this.func_147423_a(p_147424_1_ * 4, p_147424_2_ * 4);
+            .getBiomesForGeneration(this.biomesForGeneration, chunkX * 4 - 2, chunkZ * 4 - 2, 10, 10);
+        this.createChunkLatticeFromNoise(chunkX * 4, chunkZ * 4);
 
         for (int k = 0; k < 4; ++k) {
             int l = k * 5;
@@ -182,18 +273,18 @@ public class LaputaOverworldChunkProvider implements IChunkProvider {
         }
     }
 
-    private void func_147423_a(int p_147423_1_, int p_147423_3_) {
+    private void createChunkLatticeFromNoise(int chunk_x, int chunk_z) {
         double magic3 = 684.412D;
         double magic4 = 684.412D;
         double magic1 = 512.0D;
         double magic2 = 512.0D;
         this.field_147426_g = this.noiseGen6
-            .generateNoiseOctaves(this.field_147426_g, p_147423_1_, p_147423_3_, 5, 5, 200.0D, 200.0D, 0.5D);
+            .generateNoiseOctaves(this.field_147426_g, chunk_x, chunk_z, 5, 5, 200.0D, 200.0D, 0.5D);
         this.field_147427_d = this.field_147429_l.generateNoiseOctaves(
             this.field_147427_d,
-            p_147423_1_,
+            chunk_x,
             0,
-            p_147423_3_,
+            chunk_z,
             5,
             33,
             5,
@@ -202,9 +293,9 @@ public class LaputaOverworldChunkProvider implements IChunkProvider {
             8.555150000000001D);
         this.field_147428_e = this.field_147431_j.generateNoiseOctaves(
             this.field_147428_e,
-            p_147423_1_,
+            chunk_x,
             0,
-            p_147423_3_,
+            chunk_z,
             5,
             33,
             5,
@@ -213,9 +304,9 @@ public class LaputaOverworldChunkProvider implements IChunkProvider {
             684.412D);
         this.field_147425_f = this.field_147432_k.generateNoiseOctaves(
             this.field_147425_f,
-            p_147423_1_,
+            chunk_x,
             0,
-            p_147423_3_,
+            chunk_z,
             5,
             33,
             5,
